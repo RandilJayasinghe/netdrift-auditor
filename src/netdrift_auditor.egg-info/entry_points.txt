@@ -1,0 +1,2 @@
+[console_scripts]
+netdrift = netdrift.cli:main

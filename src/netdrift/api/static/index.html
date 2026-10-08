@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetDrift Auditor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script>
+tailwind.config = { theme: { extend: { keyframes: {
+  "fade-in": { "0%": { opacity: 0, transform: "translateY(6px)" }, "100%": { opacity: 1, transform: "none" } },
+  "pop": { "0%": { transform: "scale(.9)", opacity: 0 }, "100%": { transform: "scale(1)", opacity: 1 } } },
+  animation: { "fade-in": "fade-in .35s ease-out both", "pop": "pop .4s cubic-bezier(.2,.9,.3,1.3) both" } } } };
+</script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #cy { height: 480px; background-color: #fff;
+        background-image: radial-gradient(#e2e8f0 1px, transparent 1px); background-size: 20px 20px; }
+  #tip { position: fixed; pointer-events: none; z-index: 50; max-width: 380px; display: none; }
+  .ring { transition: stroke-dashoffset .9s ease-out, stroke .3s; }
+  .spinner { width: 1rem; height: 1rem; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
+  details[open] .chev { transform: rotate(90deg); }
+  .tab-active { border-color: #0ea5e9 !important; color: #0369a1 !important; background: #f0f9ff; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-700 min-h-screen antialiased">
+
+<nav class="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">N</div>
+    <span class="text-lg font-bold tracking-tight text-slate-900">NetDrift Auditor</span>
+    <span id="status" class="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">
+      <span id="dot" class="w-2 h-2 rounded-full bg-slate-400"></span><span id="statusText">checking…</span></span>
+  </div>
+  <div class="flex gap-1 text-sm">
+    <a class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-sky-700 hover:bg-sky-50 transition-all duration-200 ease-in-out" href="/docs" target="_blank" rel="noopener">API docs</a>
+    <a class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-sky-700 hover:bg-sky-50 transition-all duration-200 ease-in-out" href="/redoc" target="_blank" rel="noopener">ReDoc</a>
+    <a class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-sky-700 hover:bg-sky-50 transition-all duration-200 ease-in-out" href="/health" target="_blank" rel="noopener">/health</a>
+  </div>
+</nav>
+
+<main class="grid lg:grid-cols-[370px_1fr] gap-5 p-5 max-w-[1700px] mx-auto">
+<!-- ============ LEFT PANEL ============ -->
+<aside class="space-y-5">
+  <section class="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out p-5 space-y-3">
+    <h2 class="font-semibold text-slate-900">1. Configuration</h2>
+    <label id="drop" for="file" class="block border-2 border-dashed border-slate-300 hover:border-sky-400 hover:bg-sky-50/40 rounded-xl p-6 text-center text-sm text-slate-500 cursor-pointer transition-all duration-200 ease-in-out">
+      <svg class="mx-auto mb-2 w-8 h-8 text-sky-400" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+      <span id="dropText">Drop a firewall config here or <span class="text-sky-600 font-medium">browse</span><br><span class="text-xs text-slate-400">.conf .json .rules .txt</span></span>
+      <input id="file" type="file" class="hidden" accept=".conf,.json,.rules,.txt,.cfg,.config">
+    </label>
+    <label class="block text-xs font-medium text-slate-500">Vendor
+      <select id="vendor" class="mt-1 w-full bg-white border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-200 focus:border-sky-400 transition-all duration-200 ease-in-out">
+        <option value="">Auto-Detect</option><option value="sonicwall">SonicWall</option><option value="cisco_asa">Cisco ASA</option>
+        <option value="cisco_ftd">Cisco FTD</option><option value="fortinet">Fortinet</option><option value="iptables">iptables</option>
+      </select>
+    </label>
+    <details class="text-xs text-slate-500">
+      <summary class="cursor-pointer hover:text-sky-600 transition-colors">API credentials (only if the server requires auth)</summary>
+      <input id="cred" type="password" autocomplete="off" placeholder="API key or JWT" class="mt-2 w-full bg-white border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-200 focus:border-sky-400 transition-all duration-200 ease-in-out">
+      <p class="mt-1">Kept in this tab's session storage only. A value starting with <code class="bg-slate-100 px-1 rounded">eyJ</code> is sent as a Bearer token, anything else as <code class="bg-slate-100 px-1 rounded">X-API-Key</code>.</p>
+    </details>
+  </section>
+
+  <section class="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out p-5 space-y-3">
+    <h2 class="font-semibold text-slate-900">2. Audit profile</h2>
+    <select id="preset" class="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-200 focus:border-sky-400 transition-all duration-200 ease-in-out">
+      <option value="default">Default (internet/outside/wan/LAN → Core_DB, Mgmt_Switch)</option>
+      <option value="custom">Custom (edit below)</option>
+    </select>
+    <label class="block text-xs font-medium text-slate-500">Entry points (comma separated: zone, CIDR or "internet")
+      <input id="entries" class="mt-1 w-full bg-white border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-200 focus:border-sky-400 transition-all duration-200 ease-in-out">
+    </label>
+    <div class="text-xs font-medium text-slate-500">Critical assets</div>
+    <div id="assets" class="space-y-2"></div>
+    <button id="addAsset" type="button" class="text-xs font-medium text-sky-600 hover:text-sky-700 transition-colors">+ add asset</button>
+    <p class="text-xs text-slate-500">Entry points that do not exist in the uploaded config are skipped automatically and listed in the status line.</p>
+    <button id="run" class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg p-2.5 font-semibold text-white shadow-sm hover:shadow-md ring-sky-200 focus:outline-none focus:ring-4 transition-all duration-200 ease-in-out">
+      <span id="runSpin" class="spinner hidden"></span><span id="runLabel">Run Audit &amp; Visualize</span></button>
+    <div id="msg" class="text-xs min-h-[1rem]" role="status"></div>
+  </section>
+
+  <section class="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out p-5 space-y-4">
+    <h2 class="font-semibold text-slate-900">Security posture</h2>
+    <div class="flex items-center gap-4">
+      <div class="relative w-28 h-28 shrink-0">
+        <svg viewBox="0 0 100 100" class="w-full h-full -rotate-90">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="#e2e8f0" stroke-width="9"/>
+          <circle id="ring" class="ring" cx="50" cy="50" r="42" fill="none" stroke="#cbd5e1" stroke-width="9" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+        </svg>
+        <div id="badge" class="absolute inset-0 flex flex-col items-center justify-center">
+          <div id="score" class="text-3xl font-bold text-slate-900">–</div><div id="grade" class="text-xs font-semibold text-slate-500">grade –</div>
+        </div>
+      </div>
+      <div id="counts" class="grid grid-cols-1 gap-1 text-xs flex-1"></div>
+    </div>
+    <div class="flex gap-2">
+      <button id="dlMd" disabled class="flex-1 bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg p-2 text-sm font-medium transition-all duration-200 ease-in-out">Markdown</button>
+      <button id="dlPdf" disabled class="flex-1 bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg p-2 text-sm font-medium transition-all duration-200 ease-in-out">PDF</button>
+    </div>
+  </section>
+</aside>
+
+<!-- ============ RIGHT PANEL ============ -->
+<section class="space-y-5 min-w-0">
+  <div class="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 ease-in-out overflow-hidden">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-200 text-xs text-slate-500">
+      <span class="font-medium text-slate-700">Policy graph <span class="font-normal text-slate-500">— <span class="text-red-600 font-medium">red</span> edges are lateral-movement hops</span></span>
+      <span class="flex items-center gap-2">
+        <select id="layout" class="bg-white border border-slate-300 rounded-md px-1.5 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200"><option value="cose">cose</option><option value="breadthfirst">breadthfirst</option></select>
+        <button id="fit" class="bg-white border border-slate-300 hover:bg-slate-50 active:scale-95 rounded-md px-2 py-1 text-slate-700 transition-all duration-200">fit</button>
+        <label class="flex items-center gap-1.5 cursor-pointer"><input id="onlyAttack" type="checkbox" class="accent-sky-500"> attack paths only</label>
+      </span>
+    </div>
+    <div id="cy"><div class="h-full flex items-center justify-center text-slate-400 text-sm">Run an audit to render the network graph</div></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <div class="flex border-b border-slate-200 text-sm bg-slate-50/60" role="tablist">
+      <button data-tab="findings" class="tab px-5 py-2.5 border-b-2 border-transparent text-slate-600 hover:text-sky-700 hover:bg-sky-50/60 transition-all duration-200 ease-in-out tab-active">Findings <span id="nF" class="text-xs text-slate-500"></span></button>
+      <button data-tab="paths" class="tab px-5 py-2.5 border-b-2 border-transparent text-slate-600 hover:text-sky-700 hover:bg-sky-50/60 transition-all duration-200 ease-in-out">Attack paths <span id="nP" class="text-xs text-slate-500"></span></button>
+      <button data-tab="compliance" class="tab px-5 py-2.5 border-b-2 border-transparent text-slate-600 hover:text-sky-700 hover:bg-sky-50/60 transition-all duration-200 ease-in-out">Compliance</button>
+    </div>
+    <div class="p-4">
+      <div id="tab-findings" class="space-y-2 text-sm text-slate-500">No results yet.</div>
+      <div id="tab-paths" class="space-y-3 text-sm hidden"></div>
+      <div id="tab-compliance" class="text-sm hidden"></div>
+    </div>
+  </div>
+</section>
+</main>
+<div id="tip" class="bg-white text-slate-800 border border-slate-200 shadow-xl rounded-lg p-3 text-xs space-y-0.5"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const SEV = ["critical", "high", "medium", "low", "info"];
+const SEVCLS = {
+  critical: "bg-red-50 text-red-700 border-red-200", high: "bg-orange-50 text-orange-700 border-orange-200",
+  medium: "bg-amber-50 text-amber-800 border-amber-200", low: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  info: "bg-slate-100 text-slate-700 border-slate-200" };
+const sevCls = s => SEVCLS[s] || SEVCLS.info;
+const pill = s => `<span class="${sevCls(s)} border text-xs font-semibold px-2 py-0.5 rounded-full uppercase">${esc(s)}</span>`;
+const FIELD = "bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-slate-800 min-w-0 focus:outline-none focus:ring-4 focus:ring-sky-200 focus:border-sky-400 transition-all duration-200 ease-in-out";
+let cy = null, lastAuditId = null, file = null;
+
+/* ---------- auth + fetch ---------- */
+function authHeaders() {
+  let v = ""; try { v = sessionStorage.getItem("nd_cred") || ""; } catch (e) {}
+  if (!v) return {};
+  return v.startsWith("eyJ") ? { Authorization: "Bearer " + v } : { "X-API-Key": v };
+}
+$("cred").value = (() => { try { return sessionStorage.getItem("nd_cred") || ""; } catch (e) { return ""; } })();
+$("cred").addEventListener("input", e => { try { sessionStorage.setItem("nd_cred", e.target.value.trim()); } catch (x) {} });
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
+  if (!r.ok) {
+    let d = r.statusText; try { const j = await r.json(); d = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch (e) {}
+    const err = new Error(d); err.status = r.status; throw err;
+  }
+  return r;
+}
+function say(text, bad) { const m = $("msg"); m.textContent = text; m.className = "text-xs min-h-[1rem] " + (bad ? "text-red-600" : "text-slate-500"); }
+function busy(on) { $("run").disabled = on; $("runSpin").classList.toggle("hidden", !on); $("runLabel").textContent = on ? "Auditing…" : "Run Audit & Visualize"; }
+
+/* ---------- status ---------- */
+fetch("/health").then(r => r.json()).then(j => { $("dot").className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse"; $("statusText").textContent = "online · v" + j.version; })
+  .catch(() => { $("dot").className = "w-2 h-2 rounded-full bg-red-500"; $("statusText").textContent = "offline"; });
+
+/* ---------- profile editor ---------- */
+const DEFAULT_PROFILE = {
+  entries: ["internet", "outside", "wan", "LAN"],
+  assets: [{ name: "Core_DB", cidr: "10.10.30.10/32", criticality: "critical", category: "database" },
+           { name: "Mgmt_Switch", cidr: "10.10.99.2/32", criticality: "critical", category: "management" }]
+};
+function assetRow(a) {
+  const d = document.createElement("div"); d.className = "grid grid-cols-[1fr_1fr_auto_auto] gap-1 asset-row animate-fade-in";
+  const mk = (cls, ph, val) => { const i = document.createElement("input"); i.className = cls + " " + FIELD; i.placeholder = ph; i.value = val || ""; return i; };
+  const sel = document.createElement("select"); sel.className = "crit " + FIELD;
+  SEV.forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = s; sel.appendChild(o); }); sel.value = a.criticality || "critical";
+  const rm = document.createElement("button"); rm.type = "button"; rm.textContent = "✕"; rm.className = "text-slate-400 hover:text-red-600 px-1 transition-colors"; rm.onclick = () => { d.remove(); $("preset").value = "custom"; };
+  d.append(mk("a-name", "name", a.name), mk("a-cidr", "10.0.0.5/32", a.cidr), sel, rm);
+  d.dataset.category = a.category || "generic";
+  d.addEventListener("input", () => $("preset").value = "custom");
+  return d;
+}
+function loadDefault() { $("entries").value = DEFAULT_PROFILE.entries.join(", "); $("assets").replaceChildren(...DEFAULT_PROFILE.assets.map(assetRow)); }
+loadDefault();
+$("preset").onchange = () => { if ($("preset").value === "default") loadDefault(); };
+$("entries").addEventListener("input", () => $("preset").value = "custom");
+$("addAsset").onclick = () => { $("assets").appendChild(assetRow({ name: "", cidr: "" })); $("preset").value = "custom"; };
+function readProfile() {
+  const entries = $("entries").value.split(",").map(s => s.trim()).filter(Boolean);
+  const assets = [...document.querySelectorAll(".asset-row")].map(r => ({
+    name: r.querySelector(".a-name").value.trim(), cidr: r.querySelector(".a-cidr").value.trim(),
+    criticality: r.querySelector(".crit").value, category: r.dataset.category })).filter(a => a.name && a.cidr);
+  if (!entries.length) throw new Error("add at least one entry point");
+  if (!assets.length) throw new Error("add at least one critical asset (name + CIDR)");
+  return { entry_points: entries, critical_assets: assets, max_hops: 5, max_paths_per_target: 10 };
+}
+
+/* ---------- file picker ---------- */
+const DROP_IDLE = 'Drop a firewall config here or <span class="text-sky-600 font-medium">browse</span><br><span class="text-xs text-slate-400">.conf .json .rules .txt</span>';
+function pick(f) {
+  file = f;
+  if (f) $("dropText").innerHTML = `<span class="font-medium text-slate-800">${esc(f.name)}</span><br><span class="text-xs text-slate-500">${Math.ceil(f.size / 1024)} KB · ready</span>`;
+  else $("dropText").innerHTML = DROP_IDLE;
+}
+const dragOn = on => ["scale-[1.01]", "bg-sky-50/50", "border-sky-400"].forEach(c => $("drop").classList.toggle(c, on));
+$("file").onchange = e => pick(e.target.files[0] || null);
+["dragenter", "dragover"].forEach(ev => $("drop").addEventListener(ev, e => { e.preventDefault(); dragOn(true); }));
+["dragleave", "drop"].forEach(ev => $("drop").addEventListener(ev, e => { e.preventDefault(); dragOn(false); }));
+$("drop").addEventListener("drop", e => { if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
+
+/* ---------- run audit ---------- */
+$("run").onclick = async () => {
+  if (!file) return say("choose a configuration file first", true);
+  let profile; try { profile = readProfile(); } catch (e) { return say(e.message, true); }
+  busy(true);
+  try {
+    say("uploading and sanitizing…");
+    const fd = new FormData(); fd.append("file", file); if ($("vendor").value) fd.append("vendor", $("vendor").value);
+    const up = await (await api("/api/v1/audit/upload", { method: "POST", body: fd })).json();
+    const dropped = [];
+    let result;
+    for (;;) {   // entry points absent from this config are skipped, not fatal
+      say("analysing " + up.hostname + " (" + up.rules + " rules)…");
+      try {
+        result = await (await api("/api/v1/audit/analyze", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ config_id: up.config_id, profile }) })).json();
+        break;
+      } catch (e) {
+        const m = e.status === 422 && /entry point '([^']+)' matches no node/.exec(e.message);
+        if (!m || profile.entry_points.length < 2) throw e;
+        dropped.push(m[1]); profile.entry_points = profile.entry_points.filter(x => x !== m[1]);
+      }
+    }
+    lastAuditId = result.audit_id;
+    const cyto = await (await api("/api/v1/reports/attack-paths?format=cytoscape&audit_id=" + encodeURIComponent(lastAuditId))).json();
+    render(result, cyto);
+    const notes = [];
+    if (dropped.length) notes.push("skipped entry points not in config: " + dropped.join(", "));
+    if (up.redactions) notes.push(up.redactions + " secret(s) redacted");
+    if (up.warnings.length) notes.push(up.warnings.length + " parser warning(s)");
+    say("done · " + result.hostname + " (" + result.vendor + ")" + (notes.length ? " · " + notes.join(" · ") : ""));
+  } catch (e) {
+    say((e.status === 401 ? "authentication required: enter an API key or token under 'API credentials'. " : e.status === 429 ? "rate limited, retry shortly. " : "") + e.message, true);
+  } finally { busy(false); }
+};
+
+/* ---------- rendering ---------- */
+const GRADE = { A: "#059669", B: "#10b981", C: "#d97706", D: "#ea580c", F: "#dc2626" };
+function render(r, cyto) {
+  const g = r.score.grade, col = GRADE[g] || "#64748b", score = Math.max(0, Math.min(100, r.score.score));
+  $("score").textContent = Math.round(score); $("score").style.color = col;
+  $("grade").textContent = "grade " + g; $("grade").style.color = col;
+  $("ring").style.stroke = col; $("ring").style.strokeDashoffset = 263.9 * (1 - score / 100);
+  $("badge").classList.remove("animate-pop"); void $("badge").offsetWidth; $("badge").classList.add("animate-pop");
+  $("counts").innerHTML = SEV.map(s => `<div class="${sevCls(s)} border rounded-md px-2 py-0.5 flex justify-between animate-fade-in"><span class="capitalize">${s}</span><b>${r.score.counts[s] || 0}</b></div>`).join("");
+  $("dlMd").disabled = $("dlPdf").disabled = false;
+  $("nF").textContent = "(" + r.findings.length + ")"; $("nP").textContent = "(" + r.attack_paths.length + ")";
+  renderFindings(r.findings); renderPaths(r.attack_paths); renderCompliance(r.compliance);
+  renderGraph(cyto);
+}
+function renderFindings(fs) {
+  const box = $("tab-findings");
+  if (!fs.length) { box.textContent = "No findings. 🎉"; return; }
+  box.innerHTML = fs.map(f => `
+    <details class="border border-slate-200 rounded-lg bg-white hover:bg-slate-50/80 transition-all duration-200 ease-in-out animate-fade-in">
+      <summary class="cursor-pointer flex items-center gap-2 px-3 py-2.5">
+        <svg class="chev w-3 h-3 text-slate-400 transition-transform duration-200" viewBox="0 0 12 12" fill="currentColor"><path d="M4 2l5 4-5 4z"/></svg>
+        ${pill(f.severity)}
+        <span class="text-slate-900 font-medium">${esc(f.title)}</span><span class="ml-auto text-xs text-slate-500">${esc(f.id)}</span></summary>
+      <div class="px-4 pb-3 pt-1 space-y-2 text-slate-700 text-sm border-t border-slate-100">
+        <div class="text-xs text-slate-500 pt-2">Category ${esc(f.category)} · Rules: ${esc(f.rule_ids.join(", ") || "n/a")}</div>
+        <p>${esc(f.description)}</p>
+        <p><b class="text-emerald-700">Remediation:</b> ${esc(f.remediation)}</p>
+        <div class="flex flex-wrap gap-1">${f.compliance.map(c => `<span class="text-xs bg-sky-50 text-sky-700 border border-sky-200 rounded-full px-2 py-0.5">${esc(c)}</span>`).join("") || '<span class="text-xs text-slate-400">no control mapping</span>'}</div>
+      </div></details>`).join("");
+}
+function renderPaths(ps) {
+  const box = $("tab-paths");
+  if (!ps.length) { box.innerHTML = '<p class="text-slate-500">No lateral-movement paths to the critical assets were found.</p>'; return; }
+  const node = (t, cls) => `<span class="px-2.5 py-1 rounded-full border text-xs font-medium ${cls}">${esc(t)}</span>`;
+  box.innerHTML = ps.map(p => {
+    const chain = [node(p.hops[0].src, "bg-sky-50 text-sky-700 border-sky-200")];
+    p.hops.forEach((h, i) => chain.push(`<div class="text-xs text-center text-red-600 max-w-[230px]"><span class="font-bold">➔</span> ${esc(h.services.slice(0, 3).join(", "))}${h.implicit ? " (same segment)" : ""}
+        ${h.rule_ids.length ? `<div class="text-slate-500">rules ${esc(h.rule_ids.join(", "))}</div>` : ""}
+        ${(h.nat || []).map(n => `<div class="text-amber-700">NAT: ${esc(n)}</div>`).join("")}</div>`,
+      node(h.dst, i === p.hops.length - 1 ? "bg-red-50 text-red-700 border-red-200 font-semibold" : "bg-slate-100 text-slate-700 border-slate-200")));
+    return `<div class="border border-slate-200 rounded-lg p-3 bg-white hover:shadow-md transition-all duration-200 ease-in-out animate-fade-in"><div class="flex items-center gap-2 mb-2">
+      ${pill(p.severity)}
+      <span class="text-slate-900 font-medium">${esc(p.entry)} ➔ ${esc(p.target)}</span><span class="text-xs text-slate-500 ml-auto">${p.length} hop(s)</span></div>
+      <div class="flex flex-wrap items-center gap-2">${chain.join("")}</div></div>`;
+  }).join("");
+}
+function renderCompliance(cs) {
+  const col = { PASS: "bg-emerald-50 text-emerald-700 border-emerald-200", WARN: "bg-amber-50 text-amber-800 border-amber-200", FAIL: "bg-red-50 text-red-700 border-red-200" };
+  $("tab-compliance").innerHTML = `<table class="w-full text-left"><thead class="text-xs text-slate-500 uppercase tracking-wide"><tr class="border-b border-slate-200"><th class="py-2">Requirement</th><th>Status</th><th>Description</th><th>Findings</th></tr></thead><tbody>` +
+    cs.map(c => `<tr class="border-b border-slate-100 align-top hover:bg-slate-50/80 transition-colors"><td class="py-2.5 pr-3 whitespace-nowrap text-slate-900 font-medium">${esc(c.requirement)}</td>
+      <td class="pr-3"><span class="${col[c.status] || SEVCLS.info} border text-xs font-semibold px-2 py-0.5 rounded-full">${esc(c.status)}</span></td>
+      <td class="pr-3 text-slate-700">${esc(c.description)}</td><td class="text-xs text-slate-500">${esc(c.finding_ids.join(", "))}</td></tr>`).join("") +
+    `</tbody></table><p class="text-xs text-slate-500 mt-3">Indicative only — have a QSA confirm control interpretation.</p>`;
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("tab-active", x === b));
+  ["findings", "paths", "compliance"].forEach(t => $("tab-" + t).classList.toggle("hidden", t !== b.dataset.tab));
+});
+
+/* ---------- graph (light theme) ---------- */
+const CRIT = { critical: "#ef4444", high: "#f97316", medium: "#eab308", low: "#22c55e", info: "#94a3b8" };
+const STYLE = [
+  { selector: "node", style: { label: "data(label)", color: "#0f172a", "font-size": 10, "text-valign": "bottom", "text-margin-y": 5, "text-wrap": "wrap", "text-max-width": 110,
+      "background-color": "#ffffff", "border-width": 2, "border-color": "#64748b", width: 34, height: 34 } },
+  { selector: ".firewall", style: { shape: "hexagon", "background-color": "#0284c7", "border-color": "#38bdf8", width: 54, height: 54, "font-weight": "bold" } },
+  { selector: ".internet", style: { shape: "diamond", "background-color": "#8b5cf6", "border-color": "#c4b5fd", width: 48, height: 48 } },
+  { selector: ".segment", style: { shape: "ellipse", "background-color": "#ffffff", "border-color": "#64748b" } },
+  { selector: ".asset", style: { shape: "round-rectangle", width: 50, "background-color": "#fff1f2", "border-width": 3, "border-color": "#ef4444", "font-weight": "bold" } },
+  ...SEV.map(s => ({ selector: ".crit-" + s, style: { "border-color": CRIT[s] } })),
+  { selector: "node.attack", style: { "overlay-color": "#dc2626", "overlay-opacity": .1, "overlay-padding": 6 } },
+  { selector: "edge", style: { width: 1.6, "line-color": "#94a3b8", "target-arrow-color": "#94a3b8", "target-arrow-shape": "triangle", "curve-style": "bezier", opacity: .9 } },
+  { selector: "edge.attachment", style: { "line-style": "dotted", "target-arrow-shape": "none", opacity: .5, "line-color": "#cbd5e1" } },
+  { selector: "edge.implicit", style: { "line-style": "dashed", opacity: .7 } },
+  { selector: "edge.attack", style: { width: 3.5, "line-color": "#dc2626", "target-arrow-color": "#dc2626", "arrow-scale": 1.4, "line-style": "solid", opacity: 1, "z-index": 9 } },
+  { selector: ".faded", style: { opacity: .1 } },
+  { selector: ":selected", style: { "overlay-color": "#0ea5e9", "overlay-opacity": .15 } }
+];
+function renderGraph(data) {
+  $("cy").replaceChildren();
+  cy = cytoscape({ container: $("cy"), elements: data.elements, style: STYLE, wheelSensitivity: .3, minZoom: .2, maxZoom: 3 });
+  applyLayout(); cy.on("mouseover", "node,edge", e => tip(e)); cy.on("tap", "node,edge", e => tip(e)); cy.on("mouseout", "node,edge", () => $("tip").style.display = "none");
+  cy.on("tap", e => { if (e.target === cy) $("tip").style.display = "none"; });
+  setAttackOnly($("onlyAttack").checked);
+}
+function applyLayout() { if (cy) cy.layout({ name: $("layout").value, animate: true, animationDuration: 400, padding: 30, directed: true, nodeRepulsion: 9000, idealEdgeLength: 90 }).run(); }
+function setAttackOnly(on) {
+  if (!cy) return;
+  cy.elements().removeClass("faded");
+  if (on) { const keep = cy.elements(".attack"); cy.elements().not(keep).not(keep.connectedNodes()).not(".firewall").addClass("faded"); }
+}
+$("layout").onchange = applyLayout; $("fit").onclick = () => cy && cy.fit(undefined, 30); $("onlyAttack").onchange = e => setAttackOnly(e.target.checked);
+function tip(e) {
+  const d = e.target.data(), t = $("tip"); let h = "";
+  if (e.target.isEdge()) {
+    if (d.type === "attachment") { t.style.display = "none"; return; }
+    h = `<div class="font-semibold text-slate-900">${esc(e.target.source().data("label"))} ➔ ${esc(e.target.target().data("label"))}</div>
+      <div><span class="text-slate-500">Services:</span> ${esc((d.services || []).join(", ") || "n/a")}</div>
+      ${(d.nat || []).length ? `<div class="text-amber-700">NAT: ${esc(d.nat.join("; "))}</div>` : ""}
+      <div><span class="text-slate-500">Rules:</span> ${esc((d.rules || []).join(", ") || (d.implicit ? "implicit (same segment)" : "n/a"))}</div>
+      ${d.attack_severity ? `<div class="text-red-600 font-medium">attack path hop (${esc(d.attack_severity)})</div>` : ""}`;
+  } else {
+    h = `<div class="font-semibold text-slate-900">${esc(d.label)}</div><div class="text-slate-500">${esc(d.type)}${d.zone ? " · zone " + esc(d.zone) : ""}</div>${(d.networks || []).length ? `<div>${esc(d.networks.join(", "))}</div>` : ""}${d.category && d.category !== "generic" ? `<div class="text-slate-500">category ${esc(d.category)}</div>` : ""}`;
+  }
+  t.innerHTML = h; t.style.display = "block";
+  const p = e.originalEvent || { clientX: 40, clientY: 40 };
+  t.style.left = Math.min(p.clientX + 14, innerWidth - 400) + "px"; t.style.top = (p.clientY + 14) + "px";
+}
+
+/* ---------- downloads (fetch + blob so credentials can be sent) ---------- */
+async function download(fmt, ext) {
+  if (!lastAuditId) return;
+  try {
+    const r = await api("/api/v1/reports/summary?audit_id=" + encodeURIComponent(lastAuditId) + "&format=" + fmt);
+    const a = document.createElement("a"); a.href = URL.createObjectURL(await r.blob()); a.download = "netdrift-" + lastAuditId + "." + ext;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { say("download failed: " + e.message, true); }
+}
+$("dlMd").onclick = () => download("markdown", "md"); $("dlPdf").onclick = () => download("pdf", "pdf");
+</script>
+</body>
+</html>

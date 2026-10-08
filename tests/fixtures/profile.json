@@ -1,0 +1,9 @@
+{
+  "entry_points": ["LAN", "internet"],
+  "critical_assets": [
+    {"name": "PCI_Zone_DB", "cidr": "10.10.30.10/32", "criticality": "critical", "category": "database"},
+    {"name": "Core_Banking_Switch_Mgmt", "cidr": "10.10.99.2/32", "criticality": "critical", "category": "management"}
+  ],
+  "max_hops": 5,
+  "max_paths_per_target": 10
+}

@@ -1,0 +1,59 @@
+{
+  "name": "FTD-EDGE-01",
+  "securityZones": {"items": [
+    {"name": "outside", "securityLevel": 0},
+    {"name": "dmz", "securityLevel": 25},
+    {"name": "inside", "securityLevel": 100},
+    {"name": "db", "securityLevel": 90}
+  ]},
+  "interfaces": [
+    {"name": "GigabitEthernet0/0", "ifname": "outside", "securityZone": {"name": "outside"}, "ipv4": {"static": {"address": "198.51.100.2", "netmask": "29"}}},
+    {"name": "GigabitEthernet0/1", "ifname": "dmz", "securityZone": {"name": "dmz"}, "ipv4": {"static": {"address": "10.2.50.1", "netmask": "24"}}},
+    {"name": "GigabitEthernet0/2", "ifname": "inside", "securityZone": {"name": "inside"}, "ipv4": {"static": {"address": "10.2.0.1", "netmask": "24"}}},
+    {"name": "GigabitEthernet0/3", "ifname": "db", "securityZone": {"name": "db"}, "ipv4": {"static": {"address": "10.2.30.1", "netmask": "24"}}}
+  ],
+  "hosts": [
+    {"name": "WEB-REAL", "type": "Host", "value": "10.2.50.10"},
+    {"name": "WEB-PUBLIC", "type": "Host", "value": "198.51.100.4"},
+    {"name": "DB-01", "type": "Host", "value": "10.2.30.10"}
+  ],
+  "networks": [
+    {"name": "INSIDE-NET", "type": "Network", "value": "10.2.0.0/24"}
+  ],
+  "networkgroups": [
+    {"name": "APP-TIER", "objects": [{"name": "WEB-REAL", "type": "Host"}], "literals": [{"type": "Host", "value": "10.2.50.11"}]}
+  ],
+  "protocolportobjects": [
+    {"name": "HTTP", "protocol": "TCP", "port": "80"},
+    {"name": "MSSQL", "protocol": "TCP", "port": "1433"}
+  ],
+  "portobjectgroups": [
+    {"name": "WEB-PORTS", "objects": [{"name": "HTTP", "type": "ProtocolPortObject"}]}
+  ],
+  "natRules": {"items": [
+    {"name": "web-publish", "type": "FTDManualNatRule", "natType": "STATIC", "enabled": true,
+     "sourceInterface": {"name": "dmz"}, "destinationInterface": {"name": "outside"},
+     "originalSource": {"name": "WEB-REAL"}, "translatedSource": {"name": "WEB-PUBLIC"},
+     "originalSourcePort": {"type": "PortLiteral", "protocol": "6", "port": "80"},
+     "translatedSourcePort": {"type": "PortLiteral", "protocol": "6", "port": "8080"}}
+  ]},
+  "accessPolicies": [
+    {"name": "EDGE-ACP", "defaultAction": {"action": "BLOCK"}, "rules": {"items": [
+      {"name": "inet-to-web", "metadata": {"ruleIndex": 1}, "action": "ALLOW", "enabled": true,
+       "sourceZones": {"objects": [{"name": "outside"}]}, "destinationZones": {"objects": [{"name": "dmz"}]},
+       "destinationNetworks": {"objects": [{"name": "WEB-REAL"}]},
+       "destinationPorts": {"objects": [{"name": "WEB-PORTS", "type": "PortObjectGroup"}]}},
+      {"name": "web-to-db", "metadata": {"ruleIndex": 2}, "action": "ALLOW", "enabled": true,
+       "sourceZones": {"objects": [{"name": "dmz"}]}, "destinationZones": {"objects": [{"name": "db"}]},
+       "sourceNetworks": {"objects": [{"name": "APP-TIER"}]}, "destinationNetworks": {"objects": [{"name": "DB-01"}]},
+       "destinationPorts": {"objects": [{"name": "MSSQL"}]},
+       "commentHistoryList": [{"comment": "app tier database access"}]},
+      {"name": "dmz-block-db", "metadata": {"ruleIndex": 3}, "action": "BLOCK", "enabled": true,
+       "sourceZones": {"objects": [{"name": "dmz"}]}, "destinationZones": {"objects": [{"name": "db"}]}},
+      {"name": "monitor-only", "metadata": {"ruleIndex": 4}, "action": "MONITOR", "enabled": true},
+      {"name": "inside-out", "metadata": {"ruleIndex": 5}, "action": "ALLOW", "enabled": true,
+       "sourceZones": {"objects": [{"name": "inside"}]}, "destinationZones": {"objects": [{"name": "outside"}, {"name": "dmz"}]},
+       "sourceNetworks": {"objects": [{"name": "INSIDE-NET"}]}}
+    ]}}
+  ]
+}

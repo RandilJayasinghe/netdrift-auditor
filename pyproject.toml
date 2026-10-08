@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netdrift-auditor"
+version = "0.1.0"
+description = "Automated lateral-movement and firewall rule drift auditor"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110", "uvicorn[standard]>=0.29", "pydantic>=2.6",
+  "networkx>=3.2", "python-multipart>=0.0.9", "reportlab>=4.0",
+  "sqlalchemy>=2.0", "pyjwt>=2.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+postgres = ["psycopg[binary]>=3.1"]
+rs256 = ["cryptography>=42"]
+
+[project.scripts]
+netdrift = "netdrift.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"netdrift.api" = ["static/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

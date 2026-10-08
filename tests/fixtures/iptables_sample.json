@@ -1,0 +1,21 @@
+{
+  "hostname": "edge-gw02",
+  "interfaces": [
+    {"name": "eth0", "address": "203.0.113.2/29", "zone": "wan", "trust": 0},
+    {"name": "eth1", "address": "10.0.1.1/24", "zone": "dmz", "trust": 25},
+    {"name": "eth2", "address": "10.0.2.1/24", "zone": "db", "trust": 90}
+  ],
+  "tables": {
+    "nat": {"chains": {"PREROUTING": {"policy": "ACCEPT", "rules": [
+      {"in": "eth0", "dst": "203.0.113.5", "proto": "tcp", "dport": 8443, "target": "DNAT", "to_destination": "10.0.1.5:443", "comment": "publish web"}
+    ]}}},
+    "filter": {"chains": {
+      "INPUT": {"policy": "DROP", "rules": [{"proto": "tcp", "dport": "22", "target": "ACCEPT"}]},
+      "FORWARD": {"policy": "DROP", "rules": [
+        {"in": "eth0", "out": "eth1", "dst": "10.0.1.5", "proto": "tcp", "dport": "443", "target": "ACCEPT", "comment": "inet to web"},
+        {"in": "eth1", "out": "eth2", "src": "10.0.1.5", "dst": "10.0.2.10", "proto": "tcp", "dport": "5432,5433", "target": "ACCEPT"},
+        {"in": "eth1", "out": "eth2", "target": "DROP"}
+      ]}
+    }}
+  }
+}
