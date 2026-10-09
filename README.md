@@ -13,7 +13,7 @@
 
 **Audit firewall policies · Model lateral movement · Detect shadowed rules · Track drift · Map to PCI-DSS & ISO 27001**
 
-[Features](#-key-features) · [Architecture](#-architecture) · [Vendors](#-supported-vendors) · [Quick Start](#-quick-start) · [Dashboard](#-web-dashboard) · [API](#-api-reference) · [Security](#-security--data-hygiene)
+[Features](#-key-features) · [Architecture](#-architecture) · [Vendors](#-supported-vendors) · [Quick Start](#-quick-start) · [Dashboard](#-web-dashboard--threat-modeling) · [API](#-api-reference) · [Security](#-security--data-hygiene)
 
 </div>
 
@@ -49,41 +49,11 @@ Enterprise and banking firewalls accumulate thousands of legacy rules, NAT entri
 
 ## 🏗️ Architecture
 
-```text
-                  Raw Firewall Config Dump
-                            │
-                            ▼
-              ┌───────────────────────────┐
-              │     Secret Sanitizer      │  redacts PSKs, hashes, keys
-              └─────────────┬─────────────┘
-                            ▼
-              ┌───────────────────────────┐
-              │ Multi-Vendor Parser Layer │  SonicWall · ASA · FTD · Fortinet · iptables
-              └─────────────┬─────────────┘
-                            ▼
-              ┌───────────────────────────┐
-              │   Canonical Policy Model  │  rules · zones · NAT · routes
-              └──────┬─────────────┬──────┘
-                     ▼             ▼
-      ┌──────────────────────┐  ┌──────────────────────────┐
-      │ Anomalies & Shadowing│  │ Policy Reachability Graph│
-      │ (radix / interval)   │  │ (NAT & routing aware)    │
-      └──────────┬───────────┘  └────────────┬─────────────┘
-                 │                           ▼
-                 │              ┌──────────────────────────┐
-                 │              │ Lateral Movement Engine  │
-                 │              │ (Yen's k-shortest paths) │
-                 │              └────────────┬─────────────┘
-                 └─────────────┬─────────────┘
-                               ▼
-          ┌──────────────────────────────────────────────┐
-          │              Audit Orchestrator              │
-          │  Score A–F · Compliance Matrix · Drift Diff  │
-          └───────────────────┬──────────────────────────┘
-               ┌──────────────┼───────────────┐
-               ▼              ▼               ▼
-        FastAPI + Jobs   Cytoscape UI    PDF / Markdown
-```
+<div align="center">
+
+![NetDrift Architecture Pipeline](docs/images/netdrift-architecture-pipeline.jpg)
+
+</div>
 
 ---
 
@@ -156,19 +126,35 @@ It also reports multi-hop paths such as `LAN → DMZ → Core switch management`
 
 ---
 
-## 🖥️ Web Dashboard
+## 🖥️ Web Dashboard & Threat Modeling
+
+Start the API server and open **http://localhost:8000**:
 
 ```bash
 uvicorn netdrift.api.main:app --port 8000 --reload
 ```
 
-Open **http://localhost:8000**, drop in a config file, set entry points and critical assets, then click **Run Audit & Visualize**.
+Drop in a config file, set entry points and critical assets, then click **Run Audit & Visualize**. Interactive API docs are at `/docs`.
 
-- 🔴 **Red edges** are lateral-movement hops on an attack path
+### Executive Compliance Scorecard & Ingestion
+
+![Executive Compliance Scorecard](docs/images/netdrift-dashboard-scorecard.png)
+
+Upload a configuration, define the audit profile, and get the A–F security grade with the PCI-DSS and ISO 27001 compliance status at a glance.
+
+### Multi-Hop Lateral Movement Attack Paths
+
+![Attack Graph Topology](docs/images/netdrift-attack-graph-topology.png)
+
+- 🔴 **Red edges** are lateral-movement hops on an active attack path
 - ⬡ **Hexagon / diamond nodes** are firewalls and Internet ingress boundaries
-- 🖱️ **Click** any node or edge to see permitted ports, translated NAT services and matched rule IDs
+- 🖱️ **Click** any node or edge to inspect permitted ports, translated NAT services and matched rule IDs
 
-Interactive API docs are at `/docs`.
+### Comprehensive Findings & Rule Shadowing Matrix
+
+![Security Findings Matrix](docs/images/netdrift-audit-findings-matrix.png)
+
+Every finding is severity-ranked and linked to its rule IDs, with a concrete remediation and the PCI-DSS / ISO 27001 control it affects.
 
 ---
 
